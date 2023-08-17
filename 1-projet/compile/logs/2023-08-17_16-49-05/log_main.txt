@@ -1,0 +1,4 @@
+C:\Users\Killi\OneDrive\Documents\Programmes\C\.testcompil\1-projet\src\main.c: In function 'main':
+C:\Users\Killi\OneDrive\Documents\Programmes\C\.testcompil\1-projet\src\main.c:6:2: warning: implicit declaration of function 'getchar' [-Wimplicit-function-declaration]
+  getchar();
+  ^~~~~~~

@@ -1,0 +1,7 @@
+C:\Users\Killi\OneDrive\Documents\Programmes\C\.testcompil\1-projet\src\hello.c: In function 'sayHello':
+C:\Users\Killi\OneDrive\Documents\Programmes\C\.testcompil\1-projet\src\hello.c:8:9: warning: 'return' with a value, in function returning void
+  return 0;
+         ^
+C:\Users\Killi\OneDrive\Documents\Programmes\C\.testcompil\1-projet\src\hello.c:5:6: note: declared here
+ void sayHello()
+      ^~~~~~~~

@@ -1,0 +1,3 @@
+SOURCE_DIR : C:\Users\Killi\OneDrive\Documents\Programmes\C\.testcompil\1-projet\src
+COMPILE_DIR : C:\Users\Killi\OneDrive\Documents\Programmes\C\.testcompil\1-projet\compile
+IGNORE : fichier1.c,fichier1.h
