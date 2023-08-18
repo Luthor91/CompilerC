@@ -5,5 +5,4 @@
 void sayHello()
 {
 	printf("Hello!");
-	return 0;
 }

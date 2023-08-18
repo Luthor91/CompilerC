@@ -1,0 +1,9 @@
+time: 10:11:34,57 
+Compilation de "hello.c" : 
+hello.c : DONE 
+Compilation de "main.c" : 
+main.c : DONE 
+Linkage des fichiers .o : 
+Linkage : DONE 
+Exécution de main.exe : 
+Compilation terminee. 

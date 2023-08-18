@@ -1,0 +1,9 @@
+time: 10:07:44,84 
+Compilation de "hello.c" : 
+hello.c : DONE 
+Compilation de "main.c" : 
+main.c : DONE 
+Linkage des fichiers .o : 
+gcc: error: !object_files!: No such file or directory
+Linkage : FAILED 
+Echec de l'execution. 

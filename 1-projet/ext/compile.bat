@@ -1,6 +1,7 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 
+REM Lecture des paramètres du fichier compile.txt
 set "compile_txt=compile.txt"
 
 if exist "%compile_txt%" (
@@ -15,6 +16,7 @@ if exist "%compile_txt%" (
     )
 )
 
+REM Si les répertoires source_dir et compile_dir ne sont pas définis, les définir
 if not defined source_dir (
     set "source_dir=src"
 )
@@ -23,6 +25,7 @@ if not defined compile_dir (
     set "compile_dir=compile"
 )
 
+REM Gestion du timestamp pour les logs
 for /f "tokens=1-4 delims=:." %%a in ("%time%") do (
     set "time_stamp=%date:~6,4%-%date:~3,2%-%date:~0,2%_%%a-%%b-%%c"
 )
@@ -31,17 +34,26 @@ for /f "tokens=1 delims=," %%i in ("%time_stamp%") do set "log_subdir=%%i"
 
 set "log_subdir=%compile_dir%\logs\%log_subdir%"
 
+REM Création des répertoires
 if not exist "%log_subdir%" mkdir "%log_subdir%"
 
 if not exist "%compile_dir%\build" mkdir "%compile_dir%\build"
 if not exist "%compile_dir%\exe" mkdir "%compile_dir%\exe"
 
+REM Traitement de la liste des fichiers à ignorer
 if defined ignore_list (
     for %%i in (%ignore_list%) do (
         set "ignore_files=%%i;%ignore_files%"
     )
 )
 
+REM Variable pour stocker le chemin du fichier log
+set "log_file=%log_subdir%\log.txt"
+
+REM Ajout du temps de compilation au fichier log
+echo time: %time% >> "%log_file%"
+
+REM Compilation des fichiers .c
 for /r "%source_dir%" %%F in (*.c) do (
     set "skip_file="
     for %%i in (%ignore_list%) do (
@@ -52,10 +64,19 @@ for /r "%source_dir%" %%F in (*.c) do (
     if not defined skip_file (
         set "source_file=%%~nF"
         echo Compilation de %%~nF.c ...
-        gcc -c "%%F" -o "%compile_dir%\build\%%~nF.o" -Wall >> "%log_subdir%\log_%%~nF.txt" 2>&1
+        REM Compilation avec redirigeant les erreurs vers le fichier log
+        echo Compilation de "%%~nF.c" : >> "%log_file%"
+        gcc -c "%%F" -o "%compile_dir%\build\%%~nF.o" -Wall >> "%log_file%" 2>&1
+        REM Si erreur, ajouter le message au fichier log
+        if errorlevel 1 (
+            echo %%~nF.c : FAILED >> "%log_file%"
+        ) else (
+            echo %%~nF.c : DONE >> "%log_file%"
+        )
     )
 )
 
+REM Copie des fichiers .h
 for /r "%source_dir%" %%H in (*.h) do (
     set "skip_file="
     for %%i in (%ignore_list%) do (
@@ -70,29 +91,40 @@ for /r "%source_dir%" %%H in (*.h) do (
     )
 )
 
+REM Variable pour suivre le succès de la compilation
 set "compilation_success=1"
 
+REM Collect all .o files in the compile directory
+set "object_files="
 for %%O in ("%compile_dir%\build\*.o") do (
-    set "object_file=%%~nO"
-    echo edition des liens pour %%~nO.o ...
-    gcc "%%O" -o "%compile_dir%\exe\main.exe" -Wall >> "%log_subdir%\log_link.txt" 2>&1
-    if errorlevel 1 (
-        set "compilation_success=0"
-    )
+    set "object_files=!object_files! "%%~fO""
 )
 
-if %compilation_success% equ 1 (
-    echo Execution de %source_file%.exe...
-    "%compile_dir%\exe\main.exe"
-    if not errorlevel 1 (
-        del "%log_subdir%\log_link.txt"
-        echo %time% >> "%log_subdir%\log_time.txt"
-        echo Compilation terminee.
-    ) else (
-        echo Echec de l'execution.
-    )
+REM Generate the gcc command to link the object files
+echo Linkage des fichiers .o : >> "%log_file%"
+set "gcc_command=gcc !object_files! -o "%compile_dir%\exe\main.exe" -Wall"
+
+REM Execute the gcc command and redirect both stdout and stderr to log file
+%gcc_command% >> "%log_file%" 2>&1
+
+REM Si erreur, ajouter le message au fichier log
+if errorlevel 1 (
+    echo Linkage : FAILED >> "%log_file%"
 ) else (
-    echo Echec de la compilation.
+    echo Linkage : DONE >> "%log_file%"
+    REM Exécution de main.exe
+    if %compilation_success% equ 1 (
+        echo Execution de main.exe...
+        echo Exécution de main.exe : >> "%log_file%"
+        "%compile_dir%\exe\main.exe"
+        if not errorlevel 1 (
+            echo Compilation terminee. >> "%log_file%"
+        ) else (
+            echo Echec de l'execution. >> "%log_file%"
+        )
+    ) else (
+        echo Echec de la compilation. >> "%log_file%"
+    )
 )
 
 endlocal
