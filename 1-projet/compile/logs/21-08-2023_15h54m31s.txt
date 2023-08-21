@@ -1,0 +1,15 @@
+time: 15:54:31,94 
+Compilation de "hello.c" : 
+hello.c : DONE 
+Compilation de "main.c" : 
+main.c : DONE 
+Compilation de "test.c" : 
+test.c : DONE 
+Object file : "C:\Users\Killi\OneDrive\Documents\Programmes\C\.testcompil\1-projet\compile\build\hello.o" 
+Object file : "C:\Users\Killi\OneDrive\Documents\Programmes\C\.testcompil\1-projet\compile\build\main.o" 
+Object file : "C:\Users\Killi\OneDrive\Documents\Programmes\C\.testcompil\1-projet\compile\build\folder\test.o" 
+Linkage des fichiers : 
+No library file found 
+Linkage : DONE 
+Exécution de main.exe : 
+Compilation terminee. 
