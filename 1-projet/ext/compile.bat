@@ -2,7 +2,7 @@
 setlocal EnableDelayedExpansion
 
 REM Lecture des paramètres du fichier compile.txt
-set "compile_txt=compile.txt"
+set "compile_txt=settings.txt"
 
 if exist "%compile_txt%" (
     for /f "usebackq tokens=1,* delims=: " %%a in ("%compile_txt%") do (
@@ -12,6 +12,12 @@ if exist "%compile_txt%" (
             set "compile_dir=%%b"
         ) else if "%%a"=="IGNORE" (
             set "ignore_list=%%b"
+        ) else if "%%a"=="LIB_DIR" (
+            set "ext_library=%%b"
+        ) else if "%%a"=="INCLUDE_LIB_NAME" (
+            set "include_library=%%b"
+        ) else if "%%a"=="INCLUDE_HEADER " (
+            set "included_header=%%b"
         )
     )
 )
@@ -25,17 +31,39 @@ if not defined compile_dir (
     set "compile_dir=compile"
 )
 
-REM Gestion du timestamp pour les logs
-for /f "tokens=1-4 delims=:." %%a in ("%time%") do (
-    set "time_stamp=%date:~6,4%-%date:~3,2%-%date:~0,2%_%%a-%%b-%%c"
+if defined LIB_DIR (
+    for %%f in ("%ext_library%\*.dll") do (
+        set "library_files=!library_files! -l%%~nf "
+        echo External library file : "%%f" >> "%log_file%"
+    )
 )
 
-for /f "tokens=1 delims=," %%i in ("%time_stamp%") do set "log_subdir=%%i"
+if defined LIB_NAME (
+    for %%n in (%LIB_NAME%) do (
+        if exist "%ext_library%\%%n.dll" (
+            set "library_files=!library_files! -l%%n "
+            echo External library file : "%%n.dll" >> "%log_file%"
+        )
+    )
+)
 
-set "log_subdir=%compile_dir%\logs\%log_subdir%"
+REM Gestion du timestamp pour les logs
+for /f "tokens=1-3 delims=:. " %%a in ("%time%") do (
+    set "time_stamp=%%ah%%bm%%c"
+    REM Supprime les 3 derniers caractères, les milisecondes et une virgule
+    set "time_stamp=!time_stamp:~0,-3!s"
+)
+
+REM Obtenir la date au format YYYY-MM-DD
+for /f "tokens=1-3 delims=/-" %%d in ("%date%") do (
+    set "date_stamp=%%d-%%e-%%f"
+)
+
+REM Combinez la date et l'heure pour former le nom de fichier log
+set "log_file=%compile_dir%\logs\%date_stamp%_%time_stamp%.txt"
 
 REM Création des répertoires
-if not exist "%log_subdir%" mkdir "%log_subdir%"
+if not exist "%compile_dir%\logs" mkdir "%compile_dir%\logs"
 
 if not exist "%compile_dir%\build" mkdir "%compile_dir%\build"
 if not exist "%compile_dir%\exe" mkdir "%compile_dir%\exe"
@@ -47,13 +75,11 @@ if defined ignore_list (
     )
 )
 
-REM Variable pour stocker le chemin du fichier log
-set "log_file=%log_subdir%\log.txt"
-
 REM Ajout du temps de compilation au fichier log
 echo time: %time% >> "%log_file%"
 
-REM Compilation des fichiers .c
+REM Compilation des fichiers .c avec préservation de la structure
+echo Compilation des fichiers source...
 for /r "%source_dir%" %%F in (*.c) do (
     set "skip_file="
     for %%i in (%ignore_list%) do (
@@ -63,20 +89,28 @@ for /r "%source_dir%" %%F in (*.c) do (
     )
     if not defined skip_file (
         set "source_file=%%~nF"
-        echo Compilation de %%~nF.c ...
+        set "relative_path=%%~dpF"
+        set "relative_path=!relative_path:%source_dir%=!"
+        set "relative_path=!relative_path:\=!"
+        set "build_path=%compile_dir%\build\!relative_path!"
+        if not "!relative_path!" == "" (
+            mkdir "!build_path!" 2>nul
+        )
         REM Compilation avec redirigeant les erreurs vers le fichier log
         echo Compilation de "%%~nF.c" : >> "%log_file%"
-        gcc -c "%%F" -o "%compile_dir%\build\%%~nF.o" -Wall >> "%log_file%" 2>&1
+        gcc -c "%%F" -o "!build_path!\%%~nF.o" -Wall >> "%log_file%" 2>&1
         REM Si erreur, ajouter le message au fichier log
         if errorlevel 1 (
             echo %%~nF.c : FAILED >> "%log_file%"
+            echo     %%~nF.c ... failed
         ) else (
             echo %%~nF.c : DONE >> "%log_file%"
+            echo     %%~nF.c ... done
         )
     )
 )
 
-REM Copie des fichiers .h
+REM Copie des fichiers .h avec préservation de la structure
 for /r "%source_dir%" %%H in (*.h) do (
     set "skip_file="
     for %%i in (%ignore_list%) do (
@@ -86,23 +120,58 @@ for /r "%source_dir%" %%H in (*.h) do (
         )
     )
     if not defined skip_file (
+        set "relative_path=%%~dpH"
+        set "relative_path=!relative_path:%source_dir%=!"
+        set "relative_path=!relative_path:\=!"
+        set "build_path=%compile_dir%\build\!relative_path!"
+        if not "!relative_path!" == "" (
+            mkdir "!build_path!" 2>nul
+        )
         echo Copie de %%H...
-        copy "%%H" "%compile_dir%\build\"
+        copy "%%H" "!build_path!\" 2>nul
     )
 )
+
+
 
 REM Variable pour suivre le succès de la compilation
 set "compilation_success=1"
 
-REM Collect all .o files in the compile directory
+REM Collect all .o files in the compile directory and its subdirectories
+echo Searching for object files...
 set "object_files="
-for %%O in ("%compile_dir%\build\*.o") do (
+for /r "%compile_dir%\build\" %%O in (*.o) do (
     set "object_files=!object_files! "%%~fO""
+    echo Object file : "%%~fO" >> "%log_file%"
+)
+
+REM Collect all external library in EXT directory
+echo Searching for external library files...
+set "external_library_files="
+
+for %%f in ("%ext_library%\*.a" "%ext_library%\*.dll") do (
+    for %%i in (%include_library%) do (
+        set "filename=%%~nxf"
+        if "!filename:install.res.=!"=="%%~nxf" (
+            REM Remove 'lib' prefix and extension
+            set "filename=!filename:~3,-4!"
+            if "%%i"=="!filename!" (
+                set "external_library_files=!external_library_files! -lname!filename! "
+            )
+        )
+    )
 )
 
 REM Generate the gcc command to link the object files
-echo Linkage des fichiers .o : >> "%log_file%"
-set "gcc_command=gcc !object_files! -o "%compile_dir%\exe\main.exe" -Wall"
+echo Linkage des fichiers : >> "%log_file%"
+
+if not defined external_library_files (
+    set "gcc_command=gcc !object_files! -o "%compile_dir%\exe\main.exe" -Wall"
+    echo No library file found >> "%log_file%"
+) else ( 
+    set "gcc_command=gcc !object_files! -o "%compile_dir%\exe\main.exe" -Wall -I%ext_library% -L%ext_library% %external_library_files%"
+    echo Library file found >> "%log_file%"
+)
 
 REM Execute the gcc command and redirect both stdout and stderr to log file
 %gcc_command% >> "%log_file%" 2>&1
@@ -110,6 +179,7 @@ REM Execute the gcc command and redirect both stdout and stderr to log file
 REM Si erreur, ajouter le message au fichier log
 if errorlevel 1 (
     echo Linkage : FAILED >> "%log_file%"
+    echo ERREUR
 ) else (
     echo Linkage : DONE >> "%log_file%"
     REM Exécution de main.exe
@@ -128,4 +198,5 @@ if errorlevel 1 (
 )
 
 endlocal
+echo.
 pause
