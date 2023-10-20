@@ -1,8 +1,0 @@
-time: 10:04:26,97 
-Compilation de "hello.c" : 
-hello.c : DONE 
-Compilation de "main.c" : 
-main.c : DONE 
-Linkage : 
-Linkage : DONE 
-Echec de l'execution. 

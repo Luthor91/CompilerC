@@ -1,3 +1,0 @@
-C:\Users\Killi\OneDrive\Documents\Programmes\C\.testcompil\1-projet\src\main.c:3:5: warning: second argument of 'main' should be 'char **' [-Wmain]
- int main(int argc, char *argv)
-     ^~~~

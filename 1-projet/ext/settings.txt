@@ -1,6 +1,0 @@
-SOURCE_DIR : C:\Users\Killi\OneDrive\Documents\Programmes\C\.testcompil\1-projet\src
-COMPILE_DIR : C:\Users\Killi\OneDrive\Documents\Programmes\C\.testcompil\1-projet\compile
-LIB_DIR : C:\Users\Killi\OneDrive\Documents\Programmes\C\.testcompil\1-projet\extlib
-INCLUDE_HEADER : hello.h
-INCLUDE_LIB_NAME : libtest3.dll
-IGNORE : fichier1.c,fichier1.h, _test.h
