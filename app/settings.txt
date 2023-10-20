@@ -1,6 +1,7 @@
-SOURCE_DIR : C:\Users\Killi\OneDrive\Documents\Programmes\C\.testcompil\1-projet\src
-COMPILE_DIR : C:\Users\Killi\OneDrive\Documents\Programmes\C\.testcompil\1-projet\compile
-LIB_DIR : C:\Users\Killi\OneDrive\Documents\Programmes\C\.testcompil\1-projet\extlib
-INCLUDE_HEADER : hello.h
-INCLUDE_LIB_NAME : libtest3.dll
-IGNORE : fichier1.c,fichier1.h, _test.h
+SOURCE_DIR : C:\Users\Killi\OneDrive\Bureau\server\src
+COMPILE_DIR : C:\Users\Killi\OneDrive\Bureau\server\build
+LIB_DIR : C:\Users\Killi\OneDrive\Bureau\server\header
+SEARCH_ALSO_IN : C:\Windows\System32
+INCLUDE_HEADER : server_config.h
+INCLUDE_LIB_NAME : ws2_32.dll
+IGNORE : get_data.c
