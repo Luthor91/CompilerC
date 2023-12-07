@@ -1,0 +1,8 @@
+PROJECT_DIR : C:\Users\Killi\OneDrive\Documents\Programmes\C\LuthorDB\Luthodb
+SOURCE_DIR : C:\Users\Killi\OneDrive\Documents\Programmes\C\LuthorDB\Luthodb\server\src
+COMPILE_DIR : C:\Users\Killi\OneDrive\Documents\Programmes\C\LuthorDB\Luthodb\server\build
+LIB_DIR : C:\Users\Killi\OneDrive\Documents\Programmes\C\LuthorDB\Luthodb\server\header
+SEARCH_ALSO_IN : C:\Windows\System32
+INCLUDE_HEADER : server_config.h
+INCLUDE_LIB_NAME : ws2_32.dll
+IGNORE : get_data.c send_data.c
