@@ -1,8 +1,11 @@
+extern crate chrono;
+
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
+use chrono::offset::Utc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -180,7 +183,9 @@ fn log_warning(
 
         // Récupère la date actuelle
         let current_time = SystemTime::now();
-        let formatted_time = time_to_string(current_time);
+        let formatted_time = format_date(current_time);
+
+        
 
         // Construit le message de log complet
         let log_message = format!(
@@ -239,29 +244,11 @@ fn explore_directory(root_path: &str, extension: &str) -> Result<Vec<PathBuf>, i
     Ok(result)
 }
 
-fn time_to_string(time: SystemTime) -> String {
-    if let Ok(duration) = time.duration_since(UNIX_EPOCH) {
-        // Calcul des jours, heures, minutes et secondes
-        let days = duration.as_secs() / (24 * 3600);
+fn format_date(_time: SystemTime) -> String {
+    // Obtient le temps écoulé depuis l'époque (UNIX_EPOCH)
 
-        // Formatage de la date
-        let formatted_time = format!(
-            "{:02}_{:02}_{:04}",
-            1 + (duration.as_secs() as i64) / 86400,
-            1 + (duration.as_secs() as i64) / 2592000,
-            1970 + days
-        );
-
-        // Remplace les caractères interdits par des tirets
-        let sanitized_time = formatted_time
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
-            .collect();
-
-        sanitized_time
-    } else {
-        "unknown_time".to_string()
-    }
+    let formatted_date = Utc::now().format("%Y-%m-%d").to_string();
+    formatted_date
 }
 
 
