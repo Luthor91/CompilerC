@@ -4,11 +4,22 @@ use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::SystemTime;
 use chrono::offset::Utc;
 use std::sync::{Arc, Mutex};
-use std::thread;
+use std::{thread, env};
 
+/// Représente les types de fichiers que nous recherchons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum FileType {
+    C,
+    H,
+    DLL,
+    A,
+}
+
+/// Fonction principale du programme.
 fn main() {
     // Spécifie le chemin du répertoire racine à partir duquel le parcours commence
     let root_path = ".";
@@ -17,37 +28,10 @@ fn main() {
     let start_time = SystemTime::now();
 
     // Collecte les fichiers avec les extensions spécifiées
-    let c_files = match explore_directory(root_path, "c") {
-        Ok(files) => files,
-        Err(err) => {
-            eprintln!("Erreur lors de la collecte des fichiers C : {}", err);
-            return;
-        }
-    };
-
-    let h_files = match explore_directory(root_path, "h") {
-        Ok(files) => files,
-        Err(err) => {
-            eprintln!("Erreur lors de la collecte des fichiers H : {}", err);
-            return;
-        }
-    };
-
-    let dll_files = match explore_directory(root_path, "dll") {
-        Ok(files) => files,
-        Err(err) => {
-            eprintln!("Erreur lors de la collecte des fichiers DLL : {}", err);
-            return;
-        }
-    };
-
-    let a_files = match explore_directory(root_path, "a") {
-        Ok(files) => files,
-        Err(err) => {
-            eprintln!("Erreur lors de la collecte des fichiers A : {}", err);
-            return;
-        }
-    };
+    let c_files = collect_files(root_path, FileType::C);
+    let h_files = collect_files(root_path, FileType::H);
+    let dll_files = collect_files(root_path, FileType::DLL);
+    let a_files = collect_files(root_path, FileType::A);
 
     // Affiche les listes
     println!("Fichiers C : {:?}", c_files);
@@ -56,87 +40,17 @@ fn main() {
     println!("Fichiers A : {:?}", a_files);
 
     // Liste pour stocker les lignes contenant "#include"
-    let unique_lines: HashSet<String> = {
-        let unique_lines_mutex = Arc::new(Mutex::new(HashSet::new()));
-
-        // Parallélisation de la lecture des fichiers ".c"
-        let handles: Vec<_> = c_files.clone().into_iter().map(|file_path| {
-            let unique_lines_mutex = Arc::clone(&unique_lines_mutex);
-
-            thread::spawn(move || {
-                if let Ok(file) = File::open(&file_path) {
-                    let reader = io::BufReader::new(file);
-                    for line in reader.lines() {
-                        if let Ok(line) = line {
-                            if line.contains("#include ") {
-                                // Trouve les positions des guillemets
-                                let start_quote = line.find('"');
-                                let end_quote = line.rfind('"');
-
-                                // Si les guillemets sont présents, stocke le texte entre eux
-                                if let (Some(start), Some(end)) = (start_quote, end_quote) {
-                                    let include_text = line[start + 1..end].to_string();
-                                    let mut unique_lines = unique_lines_mutex.lock().unwrap();
-                                    unique_lines.insert(include_text);
-                                } else {
-                                    // Sinon, recherche les symboles '<' et '>'
-                                    let start_bracket = line.find('<');
-                                    let end_bracket = line.rfind('>');
-
-                                    // Si les symboles sont présents, stocke le texte entre eux
-                                    if let (Some(start), Some(end)) = (start_bracket, end_bracket) {
-                                        let include_text = line[start + 1..end].to_string();
-                                        let mut unique_lines = unique_lines_mutex.lock().unwrap();
-                                        unique_lines.insert(include_text);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            })
-        }).collect();
-
-        for handle in handles {
-            handle.join().unwrap();
-        }
-
-        Arc::try_unwrap(unique_lines_mutex).unwrap().into_inner().unwrap()
-    };
-
-    // Convertit l'ensemble en un vecteur pour obtenir la liste sans doublons
-    let unique_lines: Vec<String> = unique_lines.into_iter().collect();
+    let unique_lines = process_c_files(&c_files);
 
     // Divise unique_lines en quatre listes en fonction de l'extension
     let (expected_files_for_c, expected_files_for_h, expected_files_for_dll, expected_files_for_a) =
-        split_files_by_extension(&unique_lines.clone());
+        split_files_by_extension(&unique_lines);
 
     // Vérifie si les fichiers inclus sont présents dans les listes c_files, h_files, dll_files et a_files
-    let _ = log_warning(
-        root_path,
-        "C",
-        &c_files,
-        &expected_files_for_c,
-    );
-    let _ = log_warning(
-        root_path,
-        "H",
-        &h_files,
-        &expected_files_for_h,
-    );
-    let _ = log_warning(
-        root_path,
-        "DLL",
-        &dll_files,
-        &expected_files_for_dll,
-    );
-    let _ = log_warning(
-        root_path, 
-        "A", 
-        &a_files, 
-        &expected_files_for_a
-    );
-    
+    check_and_log_warnings("C", &c_files, &expected_files_for_c);
+    check_and_log_warnings("H", &h_files, &expected_files_for_h);
+    check_and_log_warnings("DLL", &dll_files, &expected_files_for_dll);
+    check_and_log_warnings("A", &a_files, &expected_files_for_a);
 
     // Affiche le temps d'exécution et le nombre total de fichiers traités
     if let Ok(elapsed_time) = start_time.elapsed() {
@@ -147,14 +61,133 @@ fn main() {
         println!("Temps d'exécution : {}.{:03} secondes", elapsed_secs, elapsed_millis);
         println!("Nombre de fichiers traités : {}", total_files);
     }
+
+    let include_paths = extract_unique_paths(h_files);
+
+    let library_paths = extract_unique_paths(dll_files.clone());
+
+    let libraries = extract_unique_file_names(dll_files);
+
+    // Générer la commande
+    let mut command = Command::new("gcc");
+
+    // Ajouter les fichiers .c
+    command.args(&["-o", "main"]).args(&c_files);
+
+    // Ajouter les chemins d'inclusion (-I)
+    for include_path in include_paths {
+        command.args(&["-I", &include_path]);
+    }
+
+    // Ajouter les chemins des bibliothèques (-L)
+    for library_path in library_paths {
+        command.args(&["-L", &library_path]);
+    }
+
+    // Ajouter les bibliothèques à lier (-l)
+    for library in libraries {
+        // Retirer le préfixe "lib" si présent pour les fichiers .dll
+        let library_name = if library.ends_with(".dll") {
+            library[3..library.len() - 4].to_string()
+        } else {
+            library.to_string()
+        };
+        command.args(&["-l", &library_name]);
+    }
+
+
+    // Ajouter les autres options
+    command.args(&["-lm", "-Wall"]);
+
+    // Récupérer les arguments de la commande
+    let command_args: Vec<String> = env::args().collect();
+    // Afficher la commande
+    println!("Commande : {:?}", command_args);
+
+    // Exécuter la commande
+    let status = command.status().expect("Impossible d'exécuter la commande");
+
+    if !status.success() {
+        eprintln!("Erreur lors de l'exécution de la commande");
+    }
+
 }
 
-fn log_warning(
-    root_path: &str,
-    file_type: &str,
-    file_list: &Vec<PathBuf>,
-    expected_files: &Vec<PathBuf>,
-) -> Result<(), Box<dyn std::error::Error>> {
+/// Collecte les fichiers avec une extension spécifiée.
+fn collect_files(root_path: &str, file_type: FileType) -> Vec<PathBuf> {
+    match explore_directory(root_path, file_type) {
+        Ok(files) => files,
+        Err(err) => {
+            eprintln!("Erreur lors de la collecte des fichiers {:?} : {}", file_type, err);
+            Vec::new()
+        }
+    }
+}
+
+/// Parcours le contenu des fichiers ".c" en parallèle pour extraire les lignes contenant "#include ".
+/// Parcours le contenu des fichiers ".c" en parallèle pour extraire les lignes contenant "#include ".
+fn process_c_files(c_files: &[PathBuf]) -> HashSet<String> {
+    let unique_lines_mutex = Arc::new(Mutex::new(HashSet::new()));
+    let mut handles = vec![];
+
+    for file_path in c_files {
+        let unique_lines_mutex = Arc::clone(&unique_lines_mutex);
+
+        // Clonage du chemin de fichier pour que chaque thread possède sa propre copie
+        let file_path = file_path.clone();
+
+        let handle = thread::spawn(move || {
+            if let Ok(file) = File::open(&file_path) {
+                let reader = io::BufReader::new(file);
+                for line in reader.lines() {
+                    if let Ok(line) = line {
+                        if line.contains("#include ") {
+                            process_include_line(&line, &unique_lines_mutex);
+                        }
+                    }
+                }
+            }
+        });
+
+        handles.push(handle);
+    }
+
+    // Attend que tous les threads se terminent
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    Arc::try_unwrap(unique_lines_mutex).unwrap().into_inner().unwrap()
+}
+
+
+/// Traite une ligne contenant "#include " en extrayant le texte inclus.
+fn process_include_line(line: &str, unique_lines_mutex: &Arc<Mutex<HashSet<String>>>) {
+    // Trouve les positions des guillemets
+    let start_quote = line.find('"');
+    let end_quote = line.rfind('"');
+
+    // Si les guillemets sont présents, stocke le texte entre eux
+    if let (Some(start), Some(end)) = (start_quote, end_quote) {
+        let include_text = line[start + 1..end].to_string();
+        let mut unique_lines = unique_lines_mutex.lock().unwrap();
+        unique_lines.insert(include_text);
+    } else {
+        // Sinon, recherche les symboles '<' et '>'
+        let start_bracket = line.find('<');
+        let end_bracket = line.rfind('>');
+
+        // Si les symboles sont présents, stocke le texte entre eux
+        if let (Some(start), Some(end)) = (start_bracket, end_bracket) {
+            let include_text = line[start + 1..end].to_string();
+            let mut unique_lines = unique_lines_mutex.lock().unwrap();
+            unique_lines.insert(include_text);
+        }
+    }
+}
+
+/// Vérifie si les fichiers inclus sont présents dans la liste de fichiers et log les avertissements si nécessaire.
+fn check_and_log_warnings(file_type: &str, file_list: &[PathBuf], expected_files: &[PathBuf]) {
     // Convertit la liste de fichiers en HashSet pour une recherche plus rapide
     let file_set: HashSet<_> = file_list.iter().collect();
 
@@ -185,12 +218,14 @@ fn log_warning(
         let current_time = SystemTime::now();
         let formatted_time = format_date(current_time);
 
-        
+        let current_path: PathBuf = std::env::current_dir().expect("Impossible d'obtenir le répertoire actuel");
+        let parent_name: Option<std::borrow::Cow<'_, str>> = current_path.parent().and_then(|p| p.file_name()).map(|s| s.to_string_lossy());
+        let parent_name_str: String = parent_name.unwrap_or_default().to_string();
 
         // Construit le message de log complet
         let log_message = format!(
             "Projet {}  -  {}\n{}\nFichiers attendus : {:?}\nFichiers dans unique_lines : {:?}\n\n",
-            root_path,
+            parent_name_str,
             formatted_time,
             file_type,
             warning_message,
@@ -200,31 +235,28 @@ fn log_warning(
         // Crée le dossier "logs" s'il n'existe pas
         if let Err(err) = fs::create_dir_all("logs") {
             eprintln!("Erreur lors de la création du dossier 'logs': {}", err);
-            return Err(err.into());
+            return;
         }
 
         // Crée le chemin du fichier de log avec la date du jour
-       // let log_path = format!("logs/{}.log", formatted_time);
-       let log_path = format!("logs/{}.log", formatted_time);
+        let log_path = format!("logs/{}.log", formatted_time);
         let mut file = match OpenOptions::new().create(true).append(true).open(&log_path) {
             Ok(f) => f,
             Err(err) => {
                 eprintln!("Erreur lors de l'ouverture ou de la création du fichier de log : {}", err);
-                return Err(err.into());
+                return;
             }
         };
 
         // Écrit le message de log dans le fichier
         if let Err(err) = writeln!(file, "{}", log_message) {
             eprintln!("Erreur lors de l'écriture dans le fichier de log : {}", err);
-            return Err(err.into());
-        }        
+        }
     }
-
-    Ok(())
 }
 
-fn explore_directory(root_path: &str, extension: &str) -> Result<Vec<PathBuf>, io::Error> {
+/// Parcours un répertoire et collecte les fichiers avec une extension spécifiée.
+fn explore_directory(root_path: &str, file_type: FileType) -> Result<Vec<PathBuf>, io::Error> {
     let mut result = Vec::new();
     if let Ok(entries) = fs::read_dir(root_path) {
         for entry in entries {
@@ -232,11 +264,11 @@ fn explore_directory(root_path: &str, extension: &str) -> Result<Vec<PathBuf>, i
                 let entry_path = entry.path();
                 if entry_path.is_file() && entry_path.extension().is_some() {
                     let file_extension = entry_path.extension().unwrap().to_string_lossy().to_lowercase();
-                    if file_extension == extension {
+                    if file_extension == file_type_to_extension(file_type) {
                         result.push(entry_path.clone());
                     }
                 } else if entry_path.is_dir() {
-                    result.extend(explore_directory(&entry_path.to_string_lossy(), extension)?);
+                    result.extend(explore_directory(&entry_path.to_string_lossy(), file_type)?);
                 }
             }
         }
@@ -244,18 +276,13 @@ fn explore_directory(root_path: &str, extension: &str) -> Result<Vec<PathBuf>, i
     Ok(result)
 }
 
+/// Formate la date actuelle.
 fn format_date(_time: SystemTime) -> String {
-    // Obtient le temps écoulé depuis l'époque (UNIX_EPOCH)
-
-    let formatted_date = Utc::now().format("%Y-%m-%d").to_string();
-    formatted_date
+    Utc::now().format("%Y-%m-%d").to_string()
 }
 
-
-
-
-
-fn split_files_by_extension(unique_lines: &Vec<String>) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
+/// Divise les lignes uniques en quatre listes en fonction de l'extension.
+fn split_files_by_extension(unique_lines: &HashSet<String>) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
     let mut c_files = Vec::new();
     let mut h_files = Vec::new();
     let mut dll_files = Vec::new();
@@ -277,4 +304,40 @@ fn split_files_by_extension(unique_lines: &Vec<String>) -> (Vec<PathBuf>, Vec<Pa
     }
 
     (c_files, h_files, dll_files, a_files)
+}
+
+/// Mappe les types de fichiers aux extensions correspondantes.
+fn file_type_to_extension(file_type: FileType) -> &'static str {
+    match file_type {
+        FileType::C => "c",
+        FileType::H => "h",
+        FileType::DLL => "dll",
+        FileType::A => "a",
+    }
+}
+
+fn extract_unique_paths(paths: Vec<PathBuf>) -> Vec<String> {
+    let mut unique_paths = HashSet::new();
+
+    for path in paths {
+        let parent_path = path.parent().map(|p| p.to_str().unwrap().to_string());
+
+        if let Some(parent) = parent_path {
+            unique_paths.insert(parent);
+        }
+    }
+
+    unique_paths.into_iter().collect()
+}
+
+fn extract_unique_file_names(header_paths: Vec<PathBuf>) -> Vec<String> {
+    let mut unique_names = HashSet::new();
+
+    for header_path in header_paths {
+        if let Some(file_name) = header_path.file_name().and_then(|n| n.to_str()) {
+            unique_names.insert(file_name.to_string());
+        }
+    }
+
+    unique_names.into_iter().collect()
 }
