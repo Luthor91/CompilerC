@@ -10,7 +10,7 @@ use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
-use chrono::offset::Utc;
+use chrono::Local;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -22,6 +22,10 @@ enum FileType {
     DLL,
     A,
 }
+
+// Déclarer les variables globales
+static mut FORMATTED_TIME: Option<String> = None;
+static mut LOG_PATH: Option<String> = None;
 
 /// Fonction principale du programme.
 fn main() {
@@ -37,14 +41,15 @@ fn main() {
     let dll_files = collect_files(root_path, FileType::DLL);
     let a_files = collect_files(root_path, FileType::A);
 
-    // Affiche les listes
-    println!("Fichiers C : {:?}", c_files);
-    println!("Fichiers H : {:?}", h_files);
-    println!("Fichiers DLL : {:?}", dll_files);
-    println!("Fichiers A : {:?}", a_files);
-
     // Liste pour stocker les lignes contenant "#include"
     let unique_lines = process_c_files(&c_files);
+
+    unsafe {
+        // Obtient la date formatée
+        FORMATTED_TIME = Some(get_date());
+        // Obtient le chemin du fichier de log
+        LOG_PATH = Some(format!("logs/{}.log", FORMATTED_TIME.as_ref().unwrap()));
+    }
 
     // Divise unique_lines en quatre listes en fonction de l'extension
     let (expected_files_for_c, expected_files_for_h, expected_files_for_dll, expected_files_for_a) =
@@ -60,14 +65,22 @@ fn main() {
     if let Ok(elapsed_time) = start_time.elapsed() {
         let elapsed_secs = elapsed_time.as_secs();
         let elapsed_millis = elapsed_time.subsec_millis();
-
+    
         let total_files = c_files.len() + h_files.len() + dll_files.len() + a_files.len() + unique_lines.len();
-        println!("Temps d'exécution : {}.{:03} secondes", elapsed_secs, elapsed_millis);
-        println!("Nombre de fichiers traités : {}", total_files);
+        println!("Temps d'exécution : {}.{:03} secondes pour {} fichiers", elapsed_secs, elapsed_millis, total_files);
+
+        let l_log_path: String;
+        let mut log_message: String = format!("Temps d'exécution : {}.{:03} secondes", elapsed_secs, elapsed_millis);
+
+        unsafe {  l_log_path = format!("logs/{}.log", FORMATTED_TIME.as_ref().unwrap()); }
+        write_in_logs(l_log_path.clone(), log_message);
+
+        log_message = format!("Nombre de fichiers traités : {}\n", total_files);
+
+        write_in_logs(l_log_path, log_message);
     }
 
     let include_paths = extract_unique_paths(&h_files);
-
     let library_paths = extract_unique_paths(&dll_files);
 
     let libraries = extract_unique_file_names(&dll_files);
@@ -106,11 +119,33 @@ fn main() {
     display_command(&command);
 
     // Exécuter la commande
-    let status = command.status().expect("Impossible d'exécuter la commande");
+    let output = command.output().expect("Impossible d'exécuter la commande");
 
-    if !status.success() {
-        eprintln!("Erreur lors de l'exécution de la commande");
+    let l_log_path: String;
+    let log_message : String = format!("Sortie de la commande : \n\t{}", String::from_utf8_lossy(&output.stdout));
+
+    unsafe {  l_log_path = format!("logs/{}.log", FORMATTED_TIME.as_ref().unwrap()); }
+    write_in_logs(l_log_path, log_message);
+
+    if !output.status.success() {
+
+        let l_log_path: String;
+        let log_message : String = format!("Erreur, la commande à échouée : \n\t{}", String::from_utf8_lossy(&output.stderr));
+
+        unsafe {  l_log_path = format!("logs/{}.log", FORMATTED_TIME.as_ref().unwrap()); }
+
+        write_in_logs(l_log_path, log_message);
     }
+}
+
+fn display_command(command: &Command) {
+    let command_str = format!("Commande réalisée : \n\t{:?}\n", command);
+    let l_log_path:String;
+
+    unsafe {  l_log_path = format!("logs/{}.log", FORMATTED_TIME.as_ref().unwrap()); }
+
+    write_in_logs(l_log_path, command_str);
+
 }
 
 /// Collecte les fichiers avec une extension spécifiée.
@@ -206,27 +241,28 @@ fn check_and_log_warnings(file_type: &str, file_list: &[PathBuf], expected_files
             .map(|path_buf| path_buf.to_string_lossy().to_string())
             .collect();
 
-        let warning_message = format!(
-            "Avertissement: Fichier(s) {} non trouvé(s): {}",
-            file_type,
-            missing_files_str.join(", ")
-        );
+        unsafe {
+            // Obtient la date formatée
+            FORMATTED_TIME = Some(get_date());
+            // Obtient le chemin du fichier de log
+            LOG_PATH = Some(format!("logs/{}.log", FORMATTED_TIME.as_ref().unwrap()));
+        }
 
-        // Récupère la date actuelle
-        let current_time = SystemTime::now();
-        let formatted_time = format_date(current_time);
-
+        let formatted_time = unsafe { FORMATTED_TIME.as_ref().unwrap().clone() };
+        let log_path = unsafe { LOG_PATH.as_ref().unwrap().clone() };
         let current_path: PathBuf = std::env::current_dir().expect("Impossible d'obtenir le répertoire actuel");
-        let parent_name: Option<std::borrow::Cow<'_, str>> = current_path.parent().and_then(|p| p.file_name()).map(|s| s.to_string_lossy());
+
+        let parent_name: Option<&str> = current_path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str());
         let parent_name_str: String = parent_name.unwrap_or_default().to_string();
+        
 
         // Construit le message de log complet
         let log_message = format!(
-            "Projet {}  -  {}\n{}\nFichiers attendus : {:?}\nFichiers dans unique_lines : {:?}\n\n",
+            "Project Name : {}\nDate actuelle : {}\nType de fichiers analysés : {}\n\nFichiers attendus :\n\t{:?}\nFichiers trouvés :\n\t{:?}\n",
             parent_name_str,
             formatted_time,
             file_type,
-            warning_message,
+            missing_files_str.join(", "),
             expected_files
         );
 
@@ -236,20 +272,7 @@ fn check_and_log_warnings(file_type: &str, file_list: &[PathBuf], expected_files
             return;
         }
 
-        // Crée le chemin du fichier de log avec la date du jour
-        let log_path = format!("logs/{}.log", formatted_time);
-        let mut file = match OpenOptions::new().create(true).append(true).open(&log_path) {
-            Ok(f) => f,
-            Err(err) => {
-                eprintln!("Erreur lors de l'ouverture ou de la création du fichier de log : {}", err);
-                return;
-            }
-        };
-
-        // Écrit le message de log dans le fichier
-        if let Err(err) = writeln!(file, "{}", log_message) {
-            eprintln!("Erreur lors de l'écriture dans le fichier de log : {}", err);
-        }
+        write_in_logs(log_path, log_message);
     }
 }
 
@@ -275,8 +298,25 @@ fn explore_directory(root_path: &str, file_type: FileType) -> Result<Vec<PathBuf
 }
 
 /// Formate la date actuelle.
-fn format_date(_time: SystemTime) -> String {
-    Utc::now().format("%Y-%m-%d").to_string()
+fn get_date() -> String {
+    let local_time = Local::now();
+    local_time.format("%Y-%m-%d").to_string()
+}
+
+fn write_in_logs(log_path: String, log_message: String) {
+
+    let mut file = match OpenOptions::new().create(true).append(true).open(&log_path) {
+        Ok(f) => f,
+        Err(err) => {
+            eprintln!("Erreur lors de l'ouverture ou de la création du fichier de log : {}", err);
+            return;
+        }
+    };
+
+    if let Err(err) = writeln!(file, "{}", log_message) {
+        eprintln!("Erreur lors de l'écriture dans le fichier de log : {}", err);
+    }
+
 }
 
 /// Divise les lignes uniques en quatre listes en fonction de l'extension.
@@ -320,7 +360,6 @@ fn extract_unique_paths(paths: &[PathBuf]) -> Vec<String> {
     unique_paths.into_iter().collect()
 }
 
-/// Extrait les noms de fichiers uniques.
 fn extract_unique_file_names(paths: &[PathBuf]) -> Vec<String> {
     let unique_names: HashSet<_> = paths
         .iter()
@@ -328,15 +367,3 @@ fn extract_unique_file_names(paths: &[PathBuf]) -> Vec<String> {
         .collect();
     unique_names.into_iter().collect()
 }
-
-
-/// Affiche la commande à exécuter.
-fn display_command(_command: &Command) {
-    // Afficher la commande en elle-même (pas son résultat)
-   // if let Some(command_str) = command.arg.get_args().lines().next() {
-   //     println!("Commande : {}", command_str);
-   // } else {
-    //    println!("La commande est vide.");
-   // }
-}
-
