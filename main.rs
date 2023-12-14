@@ -1,3 +1,7 @@
+//! # Projet de Vérification des Fichiers d'un Projet Rust
+//!
+//! Ce programme en Rust parcourt un répertoire et vérifie la cohérence des fichiers du projet.
+
 extern crate chrono;
 
 use std::collections::HashSet;
@@ -8,7 +12,7 @@ use std::process::Command;
 use std::time::SystemTime;
 use chrono::offset::Utc;
 use std::sync::{Arc, Mutex};
-use std::{thread, env};
+use std::thread;
 
 /// Représente les types de fichiers que nous recherchons.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -62,11 +66,11 @@ fn main() {
         println!("Nombre de fichiers traités : {}", total_files);
     }
 
-    let include_paths = extract_unique_paths(h_files);
+    let include_paths = extract_unique_paths(&h_files);
 
-    let library_paths = extract_unique_paths(dll_files.clone());
+    let library_paths = extract_unique_paths(&dll_files);
 
-    let libraries = extract_unique_file_names(dll_files);
+    let libraries = extract_unique_file_names(&dll_files);
 
     // Générer la commande
     let mut command = Command::new("gcc");
@@ -75,34 +79,31 @@ fn main() {
     command.args(&["-o", "main"]).args(&c_files);
 
     // Ajouter les chemins d'inclusion (-I)
-    for include_path in include_paths {
-        command.args(&["-I", &include_path]);
+    for include_path in &include_paths {
+        command.args(&["-I", include_path]);
     }
 
     // Ajouter les chemins des bibliothèques (-L)
-    for library_path in library_paths {
-        command.args(&["-L", &library_path]);
+    for library_path in &library_paths {
+        command.args(&["-L", library_path]);
     }
 
     // Ajouter les bibliothèques à lier (-l)
-    for library in libraries {
+    for library in &libraries {
         // Retirer le préfixe "lib" si présent pour les fichiers .dll
         let library_name = if library.ends_with(".dll") {
-            library[3..library.len() - 4].to_string()
+            &library[3..library.len() - 4]
         } else {
-            library.to_string()
+            library
         };
-        command.args(&["-l", &library_name]);
+        command.args(&["-l", library_name]);
     }
-
 
     // Ajouter les autres options
     command.args(&["-lm", "-Wall"]);
 
-    // Récupérer les arguments de la commande
-    let command_args: Vec<String> = env::args().collect();
     // Afficher la commande
-    println!("Commande : {:?}", command_args);
+    display_command(&command);
 
     // Exécuter la commande
     let status = command.status().expect("Impossible d'exécuter la commande");
@@ -110,7 +111,6 @@ fn main() {
     if !status.success() {
         eprintln!("Erreur lors de l'exécution de la commande");
     }
-
 }
 
 /// Collecte les fichiers avec une extension spécifiée.
@@ -124,7 +124,6 @@ fn collect_files(root_path: &str, file_type: FileType) -> Vec<PathBuf> {
     }
 }
 
-/// Parcours le contenu des fichiers ".c" en parallèle pour extraire les lignes contenant "#include ".
 /// Parcours le contenu des fichiers ".c" en parallèle pour extraire les lignes contenant "#include ".
 fn process_c_files(c_files: &[PathBuf]) -> HashSet<String> {
     let unique_lines_mutex = Arc::new(Mutex::new(HashSet::new()));
@@ -159,7 +158,6 @@ fn process_c_files(c_files: &[PathBuf]) -> HashSet<String> {
 
     Arc::try_unwrap(unique_lines_mutex).unwrap().into_inner().unwrap()
 }
-
 
 /// Traite une ligne contenant "#include " en extrayant le texte inclus.
 fn process_include_line(line: &str, unique_lines_mutex: &Arc<Mutex<HashSet<String>>>) {
@@ -316,28 +314,29 @@ fn file_type_to_extension(file_type: FileType) -> &'static str {
     }
 }
 
-fn extract_unique_paths(paths: Vec<PathBuf>) -> Vec<String> {
-    let mut unique_paths = HashSet::new();
-
-    for path in paths {
-        let parent_path = path.parent().map(|p| p.to_str().unwrap().to_string());
-
-        if let Some(parent) = parent_path {
-            unique_paths.insert(parent);
-        }
-    }
-
+/// Extrait les chemins uniques des fichiers.
+fn extract_unique_paths(paths: &[PathBuf]) -> Vec<String> {
+    let unique_paths: HashSet<_> = paths.iter().flat_map(|path| path.parent().map(|p| p.to_str().unwrap().to_string())).collect();
     unique_paths.into_iter().collect()
 }
 
-fn extract_unique_file_names(header_paths: Vec<PathBuf>) -> Vec<String> {
-    let mut unique_names = HashSet::new();
-
-    for header_path in header_paths {
-        if let Some(file_name) = header_path.file_name().and_then(|n| n.to_str()) {
-            unique_names.insert(file_name.to_string());
-        }
-    }
-
+/// Extrait les noms de fichiers uniques.
+fn extract_unique_file_names(paths: &[PathBuf]) -> Vec<String> {
+    let unique_names: HashSet<_> = paths
+        .iter()
+        .filter_map(|path| path.file_name().and_then(|n| n.to_str()).map(|s| s.to_string()))
+        .collect();
     unique_names.into_iter().collect()
 }
+
+
+/// Affiche la commande à exécuter.
+fn display_command(_command: &Command) {
+    // Afficher la commande en elle-même (pas son résultat)
+   // if let Some(command_str) = command.arg.get_args().lines().next() {
+   //     println!("Commande : {}", command_str);
+   // } else {
+    //    println!("La commande est vide.");
+   // }
+}
+
