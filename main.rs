@@ -21,6 +21,7 @@ enum FileType {
     H,
     DLL,
     A,
+    O
 }
 
 // Déclarer les variables globales
@@ -28,10 +29,15 @@ static mut FORMATTED_TIME: Option<String> = None;
 static mut LOG_PATH: Option<String> = None;
 static mut _TARGET_FILE: Option<String> = None;
 
-
-//  Tout modifier, copier tous les fichiers .h dans un dossier header, les fichiers .c ensemble, les .o ensemble, les .dll ensemble
-//  
-//
+//  Copier tous les fichiers .h dans un dossier header, les fichiers .c ensemble, les .o ensemble, les .dll ensemble
+//  OPT :   Fouiller dans le main, puis dans chaque fichiers ayant le même nom mais en .c puis fouiller dans chaque autres fichiers .c
+//              mettre dans un tableau "exclude" les fichiers à ignorer
+//  faire la série de collect_files pour avoir les chemins des fichiers
+//  faire la compilation en fichiers .o
+//      Prendre en compte les fichier .c et le chemin du répertoire des headers
+//  Placer les fichiers .o dans le dossier object
+//  Compiler en un fichier .exe
+//      Prendre en compte les fichiers .o et le chemin du répertoire des headers
 
 /// Fonction principale du programme.
 fn main() {
@@ -51,15 +57,14 @@ fn main() {
 
     // Collecte les fichiers avec les extensions spécifiées
     let c_files: Vec<PathBuf> = collect_files(root_path, FileType::C);
-    let mut h_files: Vec<PathBuf> = collect_files(root_path, FileType::H);
+    let h_files: Vec<PathBuf> = collect_files(root_path, FileType::H);
     let dll_files: Vec<PathBuf> = collect_files(root_path, FileType::DLL);
     let a_files: Vec<PathBuf> = collect_files(root_path, FileType::A);
+    let o_files: Vec<PathBuf> = collect_files(root_path, FileType::O);
 
     let unique_lines: HashSet<String> = update_library_list(&c_files);
 
-    let full_paths_headers: Vec<PathBuf> = resolve_include_path(root_path, h_files);
-
-    let total_files: usize = c_files.len() + h_files.len() + dll_files.len() + a_files.len() + unique_lines.len();
+    let total_files: usize = c_files.len() + h_files.len() + dll_files.len() + a_files.len() + o_files.len() + unique_lines.len();
 
     unsafe {
         // Obtient la date formatée
@@ -69,7 +74,7 @@ fn main() {
     }
 
     // Divise unique_lines en quatre listes en fonction de l'extension
-    let (expected_files_for_c, expected_files_for_h, expected_files_for_dll, expected_files_for_a) =
+    let (expected_files_for_c, expected_files_for_h, expected_files_for_dll, expected_files_for_a, expected_files_for_o) =
         split_files_by_extension(&unique_lines);
 
     // Vérifie si les fichiers inclus sont présents dans les listes c_files, h_files, dll_files et a_files
@@ -77,6 +82,7 @@ fn main() {
     check_files_then_log("H", &h_files, &expected_files_for_h);
     check_files_then_log("DLL", &dll_files, &expected_files_for_dll);
     check_files_then_log("A", &a_files, &expected_files_for_a);
+    check_files_then_log("O", &o_files, &expected_files_for_o);
 
 
 
@@ -364,11 +370,12 @@ fn write_in_logs(log_path: String, log_message: String) {
 }
 
 /// Divise les lignes uniques en quatre listes en fonction de l'extension.
-fn split_files_by_extension(unique_lines: &HashSet<String>) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
+fn split_files_by_extension(unique_lines: &HashSet<String>) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
     let mut c_files = Vec::new();
     let mut h_files = Vec::new();
     let mut dll_files = Vec::new();
     let mut a_files = Vec::new();
+    let mut o_files = Vec::new();
 
     for file in unique_lines {
         let file_extension = Path::new(&file)
@@ -381,11 +388,12 @@ fn split_files_by_extension(unique_lines: &HashSet<String>) -> (Vec<PathBuf>, Ve
             "h" => h_files.push(PathBuf::from(file)),
             "dll" => dll_files.push(PathBuf::from(file)),
             "a" => a_files.push(PathBuf::from(file)),
+            "o" => o_files.push(PathBuf::from(file)),
             _ => (),
         }
     }
 
-    (c_files, h_files, dll_files, a_files)
+    (c_files, h_files, dll_files, a_files, o_files)
 }
 
 /// Mappe les types de fichiers aux extensions correspondantes.
@@ -395,6 +403,7 @@ fn file_type_to_extension(file_type: FileType) -> &'static str {
         FileType::H => "h",
         FileType::DLL => "dll",
         FileType::A => "a",
+        FileType::O => "o",
     }
 }
 
@@ -410,13 +419,4 @@ fn extract_unique_file_names(paths: &[PathBuf]) -> Vec<String> {
         .filter_map(|path| path.file_name().and_then(|n| n.to_str()).map(|s| s.to_string()))
         .collect();
     unique_names.into_iter().collect()
-}
-
-fn resolve_include_path(root_path: &str, paths: Vec<PathBuf>) -> Vec<PathBuf> {
-    // Logique pour résoudre le chemin de l'inclusion en utilisant le chemin de base du fichier
-    // ...
-    let a: Vec<PathBuf>;
-
-    return a;
-
 }
