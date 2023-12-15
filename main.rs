@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 use std::time::SystemTime;
 use chrono::Local;
 use std::sync::{Arc, Mutex};
@@ -26,23 +26,35 @@ enum FileType {
 // Déclarer les variables globales
 static mut FORMATTED_TIME: Option<String> = None;
 static mut LOG_PATH: Option<String> = None;
+static mut _TARGET_FILE: Option<String> = None;
 
 /// Fonction principale du programme.
 fn main() {
     // Spécifie le chemin du répertoire racine à partir duquel le parcours commence
-    let root_path = ".";
+    let root_path: &str = ".";
+    let mut _target_file: &str = "main.c";
+   
+    unsafe {   FORMATTED_TIME = Some(format!("main.c")); }
+
+    // Analyser le fichier main.c
+    // récupérer les mots entre
+
+
 
     // Mesure le temps d'exécution
-    let start_time = SystemTime::now();
+    let start_time: SystemTime = SystemTime::now();
 
     // Collecte les fichiers avec les extensions spécifiées
-    let c_files = collect_files(root_path, FileType::C);
-    let h_files = collect_files(root_path, FileType::H);
-    let dll_files = collect_files(root_path, FileType::DLL);
-    let a_files = collect_files(root_path, FileType::A);
+    let c_files: Vec<PathBuf> = collect_files(root_path, FileType::C);
+    let mut h_files: Vec<PathBuf> = collect_files(root_path, FileType::H);
+    let dll_files: Vec<PathBuf> = collect_files(root_path, FileType::DLL);
+    let a_files: Vec<PathBuf> = collect_files(root_path, FileType::A);
 
-    // Liste pour stocker les lignes contenant "#include"
-    let unique_lines = process_c_files(&c_files);
+    let unique_lines: HashSet<String> = update_library_list(&c_files);
+
+    let full_paths_headers: Vec<PathBuf> = resolve_include_path(root_path, h_files);
+
+    let total_files: usize = c_files.len() + h_files.len() + dll_files.len() + a_files.len() + unique_lines.len();
 
     unsafe {
         // Obtient la date formatée
@@ -56,23 +68,23 @@ fn main() {
         split_files_by_extension(&unique_lines);
 
     // Vérifie si les fichiers inclus sont présents dans les listes c_files, h_files, dll_files et a_files
-    check_and_log_warnings("C", &c_files, &expected_files_for_c);
-    check_and_log_warnings("H", &h_files, &expected_files_for_h);
-    check_and_log_warnings("DLL", &dll_files, &expected_files_for_dll);
-    check_and_log_warnings("A", &a_files, &expected_files_for_a);
+    check_files_then_log("C", &c_files, &expected_files_for_c);
+    check_files_then_log("H", &h_files, &expected_files_for_h);
+    check_files_then_log("DLL", &dll_files, &expected_files_for_dll);
+    check_files_then_log("A", &a_files, &expected_files_for_a);
+
+
 
     // Affiche le temps d'exécution et le nombre total de fichiers traités
     if let Ok(elapsed_time) = start_time.elapsed() {
         let elapsed_secs = elapsed_time.as_secs();
         let elapsed_millis = elapsed_time.subsec_millis();
-    
-        let total_files = c_files.len() + h_files.len() + dll_files.len() + a_files.len() + unique_lines.len();
-        println!("Temps d'exécution : {}.{:03} secondes pour {} fichiers", elapsed_secs, elapsed_millis, total_files);
 
         let l_log_path: String;
         let mut log_message: String = format!("Temps d'exécution : {}.{:03} secondes", elapsed_secs, elapsed_millis);
 
         unsafe {  l_log_path = format!("logs/{}.log", FORMATTED_TIME.as_ref().unwrap()); }
+
         write_in_logs(l_log_path.clone(), log_message);
 
         log_message = format!("Nombre de fichiers traités : {}\n", total_files);
@@ -85,8 +97,40 @@ fn main() {
 
     let libraries = extract_unique_file_names(&dll_files);
 
+    let command: Command = create_gcc_command(c_files, include_paths, library_paths, libraries);
+
+    let command_str = format!("Commande réalisée : \n\t{:?}\n", command);
+    let l_log_path:String;
+
+    unsafe {  l_log_path = format!("logs/{}.log", FORMATTED_TIME.as_ref().unwrap()); }
+
+    write_in_logs(l_log_path, command_str);
+
+    execute_gcc_command(command);
+
+     // Affiche le temps d'exécution et le nombre total de fichiers traités
+     if let Ok(elapsed_time) = start_time.elapsed() {
+        let elapsed_secs = elapsed_time.as_secs();
+        let elapsed_millis = elapsed_time.subsec_millis();
+
+        let l_log_path: String;
+
+        unsafe {  l_log_path = format!("logs/{}.log", FORMATTED_TIME.as_ref().unwrap()); }
+
+        let log_message: String = format!("Temps d'exécution Total : {}.{:03} secondes", elapsed_secs, elapsed_millis);
+
+        println!("Time : {}", log_message);
+
+        write_in_logs(l_log_path, log_message);
+
+    }
+
+}
+
+fn create_gcc_command(c_files: Vec<PathBuf>, include_paths: Vec<String>, library_paths: Vec<String>, libraries: Vec<String>) -> Command {
+
     // Générer la commande
-    let mut command = Command::new("gcc");
+    let mut command: Command = Command::new("gcc");
 
     // Ajouter les fichiers .c
     command.args(&["-o", "main"]).args(&c_files);
@@ -115,11 +159,15 @@ fn main() {
     // Ajouter les autres options
     command.args(&["-lm", "-Wall"]);
 
-    // Afficher la commande
-    display_command(&command);
+    return command;
 
-    // Exécuter la commande
-    let output = command.output().expect("Impossible d'exécuter la commande");
+}
+
+fn execute_gcc_command(mut command: Command) {
+
+    let output: Output;
+    
+    output = command.output().expect("Impossible d'exécuter la commande");
 
     let l_log_path: String;
     let log_message : String = format!("Sortie de la commande : \n\t{}", String::from_utf8_lossy(&output.stdout));
@@ -127,7 +175,7 @@ fn main() {
     unsafe {  l_log_path = format!("logs/{}.log", FORMATTED_TIME.as_ref().unwrap()); }
     write_in_logs(l_log_path, log_message);
 
-    if !output.status.success() {
+    if !output.status.success() {  
 
         let l_log_path: String;
         let log_message : String = format!("Erreur, la commande à échouée : \n\t{}", String::from_utf8_lossy(&output.stderr));
@@ -136,16 +184,7 @@ fn main() {
 
         write_in_logs(l_log_path, log_message);
     }
-}
-
-fn display_command(command: &Command) {
-    let command_str = format!("Commande réalisée : \n\t{:?}\n", command);
-    let l_log_path:String;
-
-    unsafe {  l_log_path = format!("logs/{}.log", FORMATTED_TIME.as_ref().unwrap()); }
-
-    write_in_logs(l_log_path, command_str);
-
+    
 }
 
 /// Collecte les fichiers avec une extension spécifiée.
@@ -160,7 +199,7 @@ fn collect_files(root_path: &str, file_type: FileType) -> Vec<PathBuf> {
 }
 
 /// Parcours le contenu des fichiers ".c" en parallèle pour extraire les lignes contenant "#include ".
-fn process_c_files(c_files: &[PathBuf]) -> HashSet<String> {
+fn update_library_list(c_files: &[PathBuf]) -> HashSet<String> {
     let unique_lines_mutex = Arc::new(Mutex::new(HashSet::new()));
     let mut handles = vec![];
 
@@ -176,7 +215,7 @@ fn process_c_files(c_files: &[PathBuf]) -> HashSet<String> {
                 for line in reader.lines() {
                     if let Ok(line) = line {
                         if line.contains("#include ") {
-                            process_include_line(&line, &unique_lines_mutex);
+                            put_library(&line, &unique_lines_mutex);
                         }
                     }
                 }
@@ -195,7 +234,7 @@ fn process_c_files(c_files: &[PathBuf]) -> HashSet<String> {
 }
 
 /// Traite une ligne contenant "#include " en extrayant le texte inclus.
-fn process_include_line(line: &str, unique_lines_mutex: &Arc<Mutex<HashSet<String>>>) {
+fn put_library(line: &str, unique_lines_mutex: &Arc<Mutex<HashSet<String>>>) {
     // Trouve les positions des guillemets
     let start_quote = line.find('"');
     let end_quote = line.rfind('"');
@@ -219,8 +258,9 @@ fn process_include_line(line: &str, unique_lines_mutex: &Arc<Mutex<HashSet<Strin
     }
 }
 
+
 /// Vérifie si les fichiers inclus sont présents dans la liste de fichiers et log les avertissements si nécessaire.
-fn check_and_log_warnings(file_type: &str, file_list: &[PathBuf], expected_files: &[PathBuf]) {
+fn check_files_then_log(file_type: &str, file_list: &[PathBuf], expected_files: &[PathBuf]) {
     // Convertit la liste de fichiers en HashSet pour une recherche plus rapide
     let file_set: HashSet<_> = file_list.iter().collect();
 
@@ -252,25 +292,18 @@ fn check_and_log_warnings(file_type: &str, file_list: &[PathBuf], expected_files
         let log_path = unsafe { LOG_PATH.as_ref().unwrap().clone() };
         let current_path: PathBuf = std::env::current_dir().expect("Impossible d'obtenir le répertoire actuel");
 
-        let parent_name: Option<&str> = current_path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str());
-        let parent_name_str: String = parent_name.unwrap_or_default().to_string();
-        
+        let current_folder_name: Option<&str> = current_path.file_name().and_then(|n| n.to_str());
+        let current_folder_name_str: String = current_folder_name.unwrap_or_default().to_string();
 
         // Construit le message de log complet
         let log_message = format!(
             "Project Name : {}\nDate actuelle : {}\nType de fichiers analysés : {}\n\nFichiers attendus :\n\t{:?}\nFichiers trouvés :\n\t{:?}\n",
-            parent_name_str,
+            current_folder_name_str,
             formatted_time,
             file_type,
             missing_files_str.join(", "),
             expected_files
         );
-
-        // Crée le dossier "logs" s'il n'existe pas
-        if let Err(err) = fs::create_dir_all("logs") {
-            eprintln!("Erreur lors de la création du dossier 'logs': {}", err);
-            return;
-        }
 
         write_in_logs(log_path, log_message);
     }
@@ -304,6 +337,12 @@ fn get_date() -> String {
 }
 
 fn write_in_logs(log_path: String, log_message: String) {
+
+    // Crée le dossier "logs" s'il n'existe pas
+    if let Err(err) = fs::create_dir_all("logs") {
+        eprintln!("Erreur lors de la création du dossier 'logs': {}", err);
+        return;
+    }
 
     let mut file = match OpenOptions::new().create(true).append(true).open(&log_path) {
         Ok(f) => f,
@@ -366,4 +405,13 @@ fn extract_unique_file_names(paths: &[PathBuf]) -> Vec<String> {
         .filter_map(|path| path.file_name().and_then(|n| n.to_str()).map(|s| s.to_string()))
         .collect();
     unique_names.into_iter().collect()
+}
+
+fn resolve_include_path(root_path: &str, paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    // Logique pour résoudre le chemin de l'inclusion en utilisant le chemin de base du fichier
+    // ...
+    let a: Vec<PathBuf>;
+
+    return a;
+
 }
