@@ -28,6 +28,11 @@ static mut FORMATTED_TIME: Option<String> = None;
 static mut LOG_PATH: Option<String> = None;
 static mut _TARGET_FILE: Option<String> = None;
 
+
+//  Tout modifier, copier tous les fichiers .h dans un dossier header, les fichiers .c ensemble, les .o ensemble, les .dll ensemble
+//  
+//
+
 /// Fonction principale du programme.
 fn main() {
     // Spécifie le chemin du répertoire racine à partir duquel le parcours commence
