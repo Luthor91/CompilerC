@@ -5,7 +5,7 @@
 extern crate chrono;
 
 use std::collections::HashSet;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File, OpenOptions, metadata};
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -21,50 +21,68 @@ enum FileType {
     H,
     DLL,
     A,
-    O
+    O,
 }
 
 // Déclarer les variables globales
 static mut FORMATTED_TIME: Option<String> = None;
 static mut LOG_PATH: Option<String> = None;
 static mut _TARGET_FILE: Option<String> = None;
+static mut CURRENT_DIRECTORY: Option<String> = None;
 
-//  Copier tous les fichiers .h dans un dossier header, les fichiers .c ensemble, les .o ensemble, les .dll ensemble
-//  OPT :   Fouiller dans le main, puis dans chaque fichiers ayant le même nom mais en .c puis fouiller dans chaque autres fichiers .c
-//              mettre dans un tableau "exclude" les fichiers à ignorer
-//  faire la série de collect_files pour avoir les chemins des fichiers
-//  faire la compilation en fichiers .o
-//      Prendre en compte les fichier .c et le chemin du répertoire des headers
-//  Placer les fichiers .o dans le dossier object
-//  Compiler en un fichier .exe
-//      Prendre en compte les fichiers .o et le chemin du répertoire des headers
+fn _display_pathbufs(paths: &Vec<PathBuf>) {
+    for path in paths {
+        println!("{}", path.display());
+    }
+}
 
 /// Fonction principale du programme.
 fn main() {
-    // Spécifie le chemin du répertoire racine à partir duquel le parcours commence
-    let root_path: &str = ".";
-    let mut _target_file: &str = "main.c";
-   
-    unsafe {   FORMATTED_TIME = Some(format!("main.c")); }
-
-    // Analyser le fichier main.c
-    // récupérer les mots entre
-
-
-
     // Mesure le temps d'exécution
     let start_time: SystemTime = SystemTime::now();
 
+    // Obtient le nom du répertoire actuel
+    let current_directory = get_current_directory();
+    let root_directory = "./";
+    unsafe { CURRENT_DIRECTORY = Some(current_directory.clone()); }
+
+    // Crée un dossier portant le nom du répertoire actuel
+    create_directory("./", &current_directory);
+
+    create_directory(&current_directory, "header");
+    create_directory(&current_directory, "source");
+    create_directory(&current_directory, "object");
+    create_directory(&current_directory, "dll");
+    create_directory(&current_directory, "a");
+
     // Collecte les fichiers avec les extensions spécifiées
-    let c_files: Vec<PathBuf> = collect_files(root_path, FileType::C);
-    let h_files: Vec<PathBuf> = collect_files(root_path, FileType::H);
-    let dll_files: Vec<PathBuf> = collect_files(root_path, FileType::DLL);
-    let a_files: Vec<PathBuf> = collect_files(root_path, FileType::A);
-    let o_files: Vec<PathBuf> = collect_files(root_path, FileType::O);
+    let c_files: Vec<PathBuf> = collect_files(&root_directory, FileType::C);
+    let h_files: Vec<PathBuf> = collect_files(&root_directory, FileType::H);
+    let dll_files: Vec<PathBuf> = collect_files(&root_directory, FileType::DLL);
+    let a_files: Vec<PathBuf> = collect_files(&root_directory, FileType::A);
+    let o_files: Vec<PathBuf> = collect_files(&root_directory, FileType::O);
 
     let unique_lines: HashSet<String> = update_library_list(&c_files);
 
     let total_files: usize = c_files.len() + h_files.len() + dll_files.len() + a_files.len() + o_files.len() + unique_lines.len();
+
+    let current_directory = get_current_directory();
+    unsafe { CURRENT_DIRECTORY = Some(current_directory.clone()); }
+
+    // Copie les fichiers .h dans un dossier "header", les fichiers .c ensemble, les .o ensemble, les .dll ensemble
+    copy_files_to_directory(&h_files, &current_directory, "header");
+    copy_files_to_directory(&c_files, &current_directory, "source");
+    copy_files_to_directory(&o_files, &current_directory, "object");
+    copy_files_to_directory(&dll_files, &current_directory, "dll");
+    copy_files_to_directory(&a_files, &current_directory, "a");
+
+    // Optionnel: Fouiller dans les fichiers .c pour extraire les fichiers inclus
+    let _exclude_list = get_exclude_list(&c_files);
+
+    let _object_files = compile_c_files_to_object(&c_files, "object");
+
+    // Refait la série de collect_files pour avoir les chemins des fichiers
+    let c_files: Vec<PathBuf> = collect_files(&current_directory, FileType::C);
 
     unsafe {
         // Obtient la date formatée
@@ -83,9 +101,19 @@ fn main() {
     check_files_then_log("DLL", &dll_files, &expected_files_for_dll);
     check_files_then_log("A", &a_files, &expected_files_for_a);
     check_files_then_log("O", &o_files, &expected_files_for_o);
+/*
 
-
-
+    println!("h files");
+    display_pathbufs(&h_files);
+    println!("c files");
+    display_pathbufs(&c_files);
+    println!("o files");
+    display_pathbufs(&o_files);
+    println!("dll files");
+    display_pathbufs(&dll_files);
+    println!("a files");
+    display_pathbufs(&a_files);
+ */
     // Affiche le temps d'exécution et le nombre total de fichiers traités
     if let Ok(elapsed_time) = start_time.elapsed() {
         let elapsed_secs = elapsed_time.as_secs();
@@ -108,7 +136,7 @@ fn main() {
 
     let libraries = extract_unique_file_names(&dll_files);
 
-    let command: Command = create_gcc_command(c_files, include_paths, library_paths, libraries);
+    let command: Command = create_gcc_command(c_files.clone(), include_paths, library_paths, libraries);
 
     let command_str = format!("Commande réalisée : \n\t{:?}\n", command);
     let l_log_path:String;
@@ -119,8 +147,12 @@ fn main() {
 
     execute_gcc_command(command);
 
-     // Affiche le temps d'exécution et le nombre total de fichiers traités
-     if let Ok(elapsed_time) = start_time.elapsed() {
+    compile_files_to_object(&c_files, &h_files, &current_directory);
+
+    compile_to_executable(&c_files, &h_files, &current_directory);
+
+    // Affiche le temps d'exécution et le nombre total de fichiers traités
+    if let Ok(elapsed_time) = start_time.elapsed() {
         let elapsed_secs = elapsed_time.as_secs();
         let elapsed_millis = elapsed_time.subsec_millis();
 
@@ -133,10 +165,140 @@ fn main() {
         println!("Time : {}", log_message);
 
         write_in_logs(l_log_path, log_message);
+    }
+}
 
+/// Obtient la liste des fichiers à exclure.
+fn get_exclude_list(c_files: &[PathBuf]) -> Vec<String> {
+    let mut exclude_list = Vec::new();
+
+    for c_file in c_files {
+        if let Ok(file) = File::open(c_file) {
+            let reader = io::BufReader::new(file);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    if line.starts_with("// EXCLUDE:") {
+                        let excluded_file = line.trim_start_matches("// EXCLUDE:").trim().to_string();
+                        exclude_list.push(excluded_file);
+                    }
+                }
+            }
+        }
     }
 
+    exclude_list
 }
+
+/// Compile les fichiers .c en fichiers .o
+fn compile_files_to_object(c_files: &[PathBuf], h_files: &[PathBuf], current_directory: &str) {
+    // Crée un dossier "object" s'il n'existe pas déjà
+    create_directory(&current_directory, "object");
+
+    let object_files: Vec<PathBuf> = c_files.iter()
+        .map(|c_file| {
+            let mut object_file = PathBuf::from("object");
+            object_file.push(c_file.file_name().unwrap().to_str().unwrap());
+            object_file.set_extension("o");
+            object_file
+        })
+        .collect();
+
+    let include_paths = extract_unique_paths(h_files);
+    let command: Command = create_compile_command(c_files, &object_files, include_paths);
+
+    let command_str = format!("Commande réalisée pour la compilation en fichiers .o : \n\t{:?}\n", command);
+    let l_log_path:String;
+
+    unsafe {  l_log_path = format!("logs/{}.log", FORMATTED_TIME.as_ref().unwrap()); }
+
+    write_in_logs(l_log_path, command_str);
+
+    execute_gcc_command(command);
+}
+
+/// Compile les fichiers .o en un fichier exécutable
+fn compile_to_executable(object_files: &[PathBuf], h_files: &[PathBuf], current_directory: &str) {
+    // Crée un dossier "executable" s'il n'existe pas déjà
+    create_directory(&current_directory, "executable");
+
+    let executable_path = format!("{}/executable/main", current_directory);
+
+    let include_paths = extract_unique_paths(h_files);
+    let library_paths = if !object_files.is_empty() { extract_unique_paths(&object_files) } else { vec![] };
+    let libraries = if !object_files.is_empty() { extract_unique_file_names(&object_files) } else { vec![] };
+
+    let command: Command = create_compile_to_executable_command(&object_files, &executable_path, include_paths, library_paths, libraries);
+
+    let command_str = format!("Commande réalisée pour la compilation en fichier exécutable : \n\t{:?}\n", command);
+    let l_log_path:String;
+
+    unsafe {  l_log_path = format!("logs/{}.log", FORMATTED_TIME.as_ref().unwrap()); }
+
+    write_in_logs(l_log_path, command_str);
+
+    execute_gcc_command(command);
+}
+
+
+/// Crée la commande de compilation en fichier exécutable
+fn create_compile_to_executable_command(object_files: &[PathBuf], _executable_path: &str, include_paths: Vec<String>, library_paths: Vec<String>, libraries: Vec<String>) -> Command {
+    // Générer la commande
+    let mut command: Command = Command::new("gcc");
+
+    // Ajouter les fichiers .o
+    command.args(&*object_files);
+
+    // Ajouter les chemins d'inclusion (-I)
+    for include_path in &include_paths {
+        command.args(&["-I", include_path]);
+    }
+
+    // Ajouter les chemins des bibliothèques (-L)
+    for library_path in &library_paths {
+        command.args(&["-L", library_path]);
+    }
+
+    // Ajouter les bibliothèques à lier (-l)
+    for library in &libraries {
+        command.args(&["-l", library]);
+    }
+
+    // Vérifier si le vecteur object_files n'est pas vide avant d'ajouter les fichiers .o en tant que sortie
+    if !object_files.is_empty() {
+        // Ajouter l'option de sortie (fichier exécutable)
+        command.args(&["-o"]).arg(&object_files[0]);
+    }
+
+
+    command
+}
+
+
+/// Crée la commande de compilation en fichiers .o
+fn create_compile_command(c_files: &[PathBuf], object_files: &[PathBuf], include_paths: Vec<String>) -> Command {
+    // Générer la commande
+    let mut command: Command = Command::new("gcc");
+
+    // Ajouter les fichiers .c
+    command.args(&*c_files);
+
+    // Ajouter les chemins d'inclusion (-I)
+    for include_path in &include_paths {
+        command.args(&["-I", include_path]);
+    }
+
+    // Vérifier si le vecteur object_files n'est pas vide avant d'ajouter les fichiers .o en tant que sortie
+    if !object_files.is_empty() {
+        command.args(&["-o"]).arg(object_files[0].to_str().unwrap());
+    } else {
+        // Ajouter un message d'erreur ou prendre une autre action appropriée
+        eprintln!("Erreur: Aucun fichier objet trouvé pour la sortie.");
+        // Vous pouvez choisir de ne pas ajouter l'option -o du tout ou ajouter une valeur par défaut
+    }
+
+    command
+}
+
 
 fn create_gcc_command(c_files: Vec<PathBuf>, include_paths: Vec<String>, library_paths: Vec<String>, libraries: Vec<String>) -> Command {
 
@@ -419,4 +581,74 @@ fn extract_unique_file_names(paths: &[PathBuf]) -> Vec<String> {
         .filter_map(|path| path.file_name().and_then(|n| n.to_str()).map(|s| s.to_string()))
         .collect();
     unique_names.into_iter().collect()
+}
+
+fn create_directory(base_directory: &str, destination_folder: &str) {
+    let directory_path = format!("{}/{}", base_directory, destination_folder);
+
+    // Vérifie si le dossier existe déjà
+    if !Path::new(&directory_path).exists() {
+        // Crée le dossier s'il n'existe pas déjà
+        if let Err(err) = fs::create_dir(&directory_path) {
+            eprintln!("Erreur lors de la création du dossier '{}': {}", directory_path, err);
+        }
+    }
+}
+
+fn copy_files_to_directory(files: &[PathBuf], base_directory: &str, destination_folder: &str) {
+    let destination_path = format!("{}/{}", base_directory, destination_folder);
+
+    for file in files {
+        let file_name = file.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+        let destination_file_path = format!("{}/{}", destination_path, file_name);
+
+        // Vérifie si le fichier existe déjà dans le dossier de destination
+        if !metadata(&destination_file_path).is_ok() {
+            // Copie le fichier vers le dossier de destination
+            if let Err(err) = fs::copy(&file, &destination_file_path) {
+                eprintln!("Erreur lors de la copie du fichier '{}' : {}", file_name, err);
+            }
+        }
+    }
+}
+
+fn get_current_directory() -> String {
+    // Obtenir le répertoire actuel
+    match std::env::current_dir() {
+        Ok(path) => path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string(),
+        Err(err) => {
+            eprintln!("Erreur lors de l'obtention du répertoire actuel : {}", err);
+            String::new()
+        }
+    }
+}
+
+fn compile_c_to_object(c_file: &PathBuf, object_directory: &str) -> Result<PathBuf, io::Error> {
+    let mut object_file = PathBuf::from(object_directory);
+    object_file.push(c_file.file_stem().unwrap());
+    object_file.set_extension("o");
+
+    let mut command = Command::new("gcc");
+    command.args(&[c_file.canonicalize()?.to_str().unwrap(), "-c", "-o", object_file.to_str().unwrap()]);
+
+    let output = command.output()?;
+    if output.status.success() {
+        Ok(object_file)
+    } else {
+        Err(io::Error::new(io::ErrorKind::Other, "La compilation a échoué"))
+    }
+}
+
+
+fn compile_c_files_to_object(c_files: &[PathBuf], object_directory: &str) -> Vec<PathBuf> {
+    let mut object_files = Vec::new();
+
+    for c_file in c_files {
+        match compile_c_to_object(c_file, object_directory) {
+            Ok(object_file) => object_files.push(object_file),
+            Err(err) => eprintln!("Erreur lors de la compilation du fichier {:?}: {}", c_file, err),
+        }
+    }
+
+    object_files
 }
