@@ -572,45 +572,40 @@ fn get_current_directory() -> String {
     }
 }
 
-fn compile_c_to_output(c_file: &PathBuf) -> Result<PathBuf, io::Error> {
-    
+fn compile_c_files_to_output(c_files: &[PathBuf]) -> Result<Vec<PathBuf>, io::Error> {
     let current_directory = unsafe { CURRENT_DIRECTORY.as_ref().unwrap() };
-    
-    let path = format!("{}{}{}", "./", current_directory, "\\output");
-    let mut output_file = PathBuf::from(path);
-    output_file.push(c_file.file_name().unwrap());
-    output_file.set_extension("o");
-
-    let c_file_str: String = c_file.to_str().unwrap().replace("\\", "/");
-    let output_file_str: String = output_file.to_str().unwrap().replace("\\", "/");
-
-    let mut command: Command = Command::new("gcc");
-    command.args(&[&c_file_str, "-c", "-o", &output_file_str]);
-
-    let output = command.output()?;
-    if output.status.success() {
-        Ok(output_file)
-    } else {
-        let error_message = format!(
-            "La compilation a échoué. Erreur : {}\nCommande exécutée : {:?}\nSortie de la commande : {}",
-            String::from_utf8_lossy(&output.stderr),
-            command,
-            String::from_utf8_lossy(&output.stdout),
-        );
-        Err(io::Error::new(io::ErrorKind::Other, error_message))
-    }
-}
-
-fn compile_c_files_to_output(c_files: &[PathBuf]) -> Vec<PathBuf> {
     let mut output_files = Vec::new();
+
     for c_file in c_files {
-        match compile_c_to_output(c_file) {
-            Ok(output_file) => output_files.push(output_file),
-            Err(err) => eprintln!("\nErreur lors de la compilation du fichier {:?}: {}", c_file, err),
+        let path = format!("{}{}", current_directory, "\\output");
+        let mut output_file = PathBuf::from(path);
+        output_file.push(c_file.file_name().unwrap());
+        output_file.set_extension("o");
+
+        let c_file_str: String = c_file.to_str().unwrap().replace("\\", "/");
+        let output_file_str: String = output_file.to_str().unwrap().replace("\\", "/");
+        
+       
+
+        let mut command: Command = Command::new("gcc");
+        command.args(&[&c_file_str, "-c", "-o", &output_file_str]);
+
+        let output = command.output()?;
+        if output.status.success() {
+            output_files.push(output_file);
+        } else {
+            let error_message = format!(
+                "La compilation a échoué. Erreur : {}\nCommande exécutée : {:?}\nSortie de la commande : {}",
+                String::from_utf8_lossy(&output.stderr),
+                command,
+                String::from_utf8_lossy(&output.stdout),
+            );
+            eprintln!("Erreur lors de la compilation du fichier {:?}: {}", c_file, error_message);
         }
     }
 
-    output_files
+    Ok(output_files)
+
 }
 
 fn execute_main() {
