@@ -128,9 +128,7 @@ fn main() {
     let library_paths: Vec<String>  = extract_unique_paths(&dll_files);
     let libraries: Vec<String>      = extract_unique_file_names(&dll_files);
 
-    compile_files_to_output(&c_files, &h_files);
-
-    let command: Command = create_gcc_command(o_files.clone(), include_paths, library_paths, libraries);
+    let command: Command = create_command_main(o_files.clone(), include_paths, library_paths, libraries);
 
     let command_str = format!("Commande réalisée pour l'exécution du projet : \n\t{:?}\n", command);
     let l_log_path:String;
@@ -182,78 +180,7 @@ fn get_exclude_list(c_files: &[PathBuf]) -> Vec<String> {
     exclude_list
 }
 
-/// Compile les fichiers .c en fichiers .o
-fn compile_files_to_output(c_files: &[PathBuf], h_files: &[PathBuf]) {
-    let current_directory: String = get_current_directory();
-
-    let output_files: Vec<PathBuf> = c_files.iter()
-    .map(|c_file| {
-        let mut output_file = PathBuf::from(format!("{}{}", current_directory, "\\output"));
-        output_file.push(c_file.file_name().unwrap()); // Utilisez file_name() ici
-        output_file.set_extension("o");
-        output_file
-    })
-    .collect();
-
-    for h in h_files {
-        println!("header : {}", h.display());
-    }
-    
-
-    let include_paths = extract_unique_paths(h_files);
-    
-    for include_path in &include_paths {
-        println!("include : {}", include_path);
-    }
-
-    for c_file in c_files {
-        println!("source : {}", c_file.display());
-    }
-    
-    let command: Command = create_compile_command(c_files, &output_files, include_paths);
-
-    let command_str = format!("Commande réalisée pour la compilation en fichiers .o : \n\t{:?}\n", command);
-    let l_log_path: String;
-
-    unsafe { l_log_path = format!("logs/{}.log", FORMATTED_TIME.as_ref().unwrap()); }
-
-    write_in_logs(l_log_path, command_str);
-
-    let _ = execute_gcc_command(command);
-}
-
-/// Crée la commande de compilation en fichiers .o
-fn create_compile_command(c_files: &[PathBuf], output_files: &[PathBuf], include_paths: Vec<String>) -> Command {
-    // Générer la commande
-    let mut command: Command = Command::new("gcc");
-
-    // Ajouter les fichiers .c
-    command.args(&*c_files);
-
-    // Ajouter les chemins d'inclusion (-I)
-    for include_path in &include_paths {
-        command.args(&["-I", include_path]);
-    }
-
-    // Vérifier si le vecteur output_files n'est pas vide avant d'ajouter les fichiers .o en tant que sortie
-    if !output_files.is_empty() {
-        command.arg("-o");
-        
-        for file in output_files {
-            println!("output : {}", file.display());
-            command.arg(file.to_str().unwrap());
-        }
-
-    } else {
-        eprintln!("Erreur: Aucun fichier objet trouvé pour la sortie.");
-    }
-
-
-    command
-}
-
-
-fn create_gcc_command(o_files: Vec<PathBuf>, include_paths: Vec<String>, library_paths: Vec<String>, libraries: Vec<String>) -> Command {
+fn create_command_main(o_files: Vec<PathBuf>, include_paths: Vec<String>, library_paths: Vec<String>, libraries: Vec<String>) -> Command {
 
     // Générer la commande
     let mut command: Command = Command::new("gcc");
@@ -573,25 +500,25 @@ fn get_current_directory() -> String {
 }
 
 fn compile_c_files_to_output(c_files: &[PathBuf]) -> Result<Vec<PathBuf>, io::Error> {
-    let current_directory = unsafe { CURRENT_DIRECTORY.as_ref().unwrap() };
-    let mut output_files = Vec::new();
+    let current_directory: &String = unsafe { CURRENT_DIRECTORY.as_ref().unwrap() };
+    let mut output_files: Vec<PathBuf> = Vec::new();
 
     for c_file in c_files {
-        let path = format!("{}{}", current_directory, "\\output");
-        let mut output_file = PathBuf::from(path);
+        
+        let path: String = format!("{}{}", current_directory, "\\output");
+        let mut output_file: PathBuf = PathBuf::from(path);
         output_file.push(c_file.file_name().unwrap());
         output_file.set_extension("o");
 
         let c_file_str: String = c_file.to_str().unwrap().replace("\\", "/");
         let output_file_str: String = output_file.to_str().unwrap().replace("\\", "/");
-        
-       
 
         let mut command: Command = Command::new("gcc");
         command.args(&[&c_file_str, "-c", "-o", &output_file_str]);
 
-        let output = command.output()?;
+        let output: Output = command.output()?;
         if output.status.success() {
+
             output_files.push(output_file);
         } else {
             let error_message = format!(
