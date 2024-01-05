@@ -47,13 +47,7 @@ fn main() {
     unsafe { CURRENT_DIRECTORY = Some(current_directory.clone()); }
 
     // Crée un dossier portant le nom du répertoire actuel
-    create_directory("./", &current_directory);
-    create_directory(&current_directory, "executable");
-    create_directory(&current_directory, "source");
-    create_directory(&current_directory, "output");
-    create_directory(&current_directory, "dll");
-    create_directory(&current_directory, "a");
-
+    create_directory(&current_directory);
     // Collecte les fichiers avec les extensions spécifiées
     let c_files: Vec<PathBuf> = collect_files(&root_directory, FileType::C);
     let h_files: Vec<PathBuf> = collect_files(&root_directory, FileType::H);
@@ -459,16 +453,28 @@ fn extract_unique_file_names(paths: &[PathBuf]) -> Vec<String> {
     unique_names.into_iter().collect()
 }
 
-fn create_directory(base_directory: &str, destination_folder: &str) {
-    let directory_path = format!("{}/{}", base_directory, destination_folder);
+fn create_directory(base_directory: &str) {
 
-    // Vérifie si le dossier existe déjà
-    if !Path::new(&directory_path).exists() {
-        // Crée le dossier s'il n'existe pas déjà
-        if let Err(err) = fs::create_dir(&directory_path) {
-            eprintln!("Erreur lors de la création du dossier '{}': {}", directory_path, err);
+    let directory_paths: Vec<String> = [
+        format!("{}/{}", "./", base_directory),
+        format!("{}/{}", base_directory, "executable"),
+        format!("{}/{}", base_directory, "source"),
+        format!("{}/{}", base_directory, "output"),
+        format!("{}/{}", base_directory, "dll"),
+        format!("{}/{}", base_directory, "a"),
+
+    ].to_vec();
+
+    for directory_path in directory_paths {
+
+        if !Path::new(&directory_path).exists() {
+            if let Err(err) = fs::create_dir(&directory_path) {
+                eprintln!("Erreur lors de la création du dossier '{}': {}", directory_path, err);
+            }
         }
+
     }
+
 }
 
 fn copy_files_to_directory(files: &[PathBuf], base_directory: &str, destination_folder: &str) {
