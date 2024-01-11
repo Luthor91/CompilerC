@@ -514,7 +514,7 @@ fn execute_main() {
 
     let target_path = get_target_path();
     
-    let path = format!("{}{}{}", "./", target_path, "\\executable\\main");
+    let path = format!("{}{}", target_path, "\\executable\\main");
 
     let mut command = Command::new(path.clone());
 
@@ -522,8 +522,6 @@ fn execute_main() {
         Ok(status) => {
             if status.success() {
                 println!("\nExécutable '{}' a été exécuté avec succès.", path);
-            } else {
-                eprintln!("Erreur lors de l'exécution de l'exécutable '{}'. Le processus a renvoyé un code d'erreur.", path);
             }
         }
         Err(err) => {
@@ -577,9 +575,7 @@ fn compile_single_source_to_output(source_file: &str, output_file: &str) -> Resu
 async fn compile_output_to_executable(o_files: Vec<PathBuf>, include_paths: Vec<String>, library_paths: Vec<String>, libraries: Vec<String>) -> Result<Vec<u8>, std::io::Error> {
 
     let mut command: Command = Command::new("gcc");
-
     let target_path: String = get_target_path();
-    
     let path_exe: String = format!("{}{}", target_path, "\\executable\\main.exe");
 
     command.args(&["-o", &path_exe]).args(o_files);
@@ -597,11 +593,8 @@ async fn compile_output_to_executable(o_files: Vec<PathBuf>, include_paths: Vec<
     for library in &libraries {
 
         let library_name = 
-            if library.ends_with(".dll") {
-                &library[3..library.len() - 4]
-            } else {
-                library
-            };
+            if library.ends_with(".dll") {  &library[3..library.len() - 4] } 
+            else {  library };
 
         command.args(&["-l", library_name]);
     }
@@ -630,23 +623,13 @@ async fn compile_output_to_executable(o_files: Vec<PathBuf>, include_paths: Vec<
 }
 
 async fn build_source(c_files: &[PathBuf]) -> Vec<PathBuf> {
-    if let Ok(output) = compile_source_to_output(c_files).await {
-        output
-    } else {
-        Vec::<PathBuf>::new()
-    }
+    if let Ok(output) = compile_source_to_output(c_files).await { return output  }
+    Vec::<PathBuf>::new()
 }
 
 
 async fn build_execute(o_files: Vec<PathBuf>, include_paths: Vec<String>, library_paths: Vec<String>, libraries: Vec<String>) {
 
-    if let Ok(output) = compile_output_to_executable(o_files, include_paths, library_paths, libraries).await  {
-        for n in &output {
-            println!("build_execute : {}", n);
-        }
-    } else {
-        println!("build_execute : NOPE");
-    }
-    println!("build_execute : end");
+    let _ = compile_output_to_executable(o_files, include_paths, library_paths, libraries).await;
     
 }
