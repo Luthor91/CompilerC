@@ -14,8 +14,6 @@ use std::time::{SystemTime, Duration};
 use std::sync::{Arc, Mutex};
 use std::{thread, env};
 
-use tokio::process::Command as AsyncCommand;
-
 use chrono::Local;
 
 /// Représente les types de fichiers que nous recherchons.
@@ -93,6 +91,12 @@ async fn main() {
     collect_files(&project_path, FileType::DLL, &mut file_collections.dll_files);
     collect_files(&project_path, FileType::A, &mut file_collections.a_files);
     collect_files(&project_path, FileType::O, &mut file_collections.o_files);
+    
+    println!("before before o_file : ");
+    for o in &mut file_collections.o_files {
+        println!("{}", o.display());
+    }
+
 
     let unique_library_files: HashSet<String> = update_library_list(&mut file_collections.c_files);
     let total_files: usize = file_collections.c_files.len() + file_collections.h_files.len() + file_collections.dll_files.len() + file_collections.a_files.len() + file_collections.o_files.len() + unique_library_files.len();
@@ -370,7 +374,7 @@ fn check_all_files(file_type: &str, file_list: &[PathBuf], expected_files: &[Pat
     }
 }
 
-/// Parcours un répertoire et collecte les fichiers avec une extension spécifiée.
+/// Parcours le contenu des fichiers ".c" en parallèle pour extraire les lignes contenant "#include ".
 fn explore_directory(root_path: &str, file_type: FileType) -> Result<Vec<PathBuf>, io::Error> {
     let mut result = Vec::new();
     if let Ok(entries) = fs::read_dir(root_path) {
@@ -390,6 +394,8 @@ fn explore_directory(root_path: &str, file_type: FileType) -> Result<Vec<PathBuf
     }
     Ok(result)
 }
+
+
 
 fn write_in_logs(log_message: String) {
 
@@ -541,32 +547,31 @@ async fn compile_source_to_output(c_files: &[PathBuf]) -> Result<Vec<PathBuf>, i
         let c_file_str: String = c_file.to_str().unwrap().replace("\\", "/");
         let output_file_str: String = output_file.to_str().unwrap().replace("\\", "/");
 
-        let mut async_command = AsyncCommand::new("gcc");
-        async_command.args(&[&c_file_str, "-c", "-o", &output_file_str]);
-
-        let output: Output = async_command.output().await?;
-
-        if output.status.success() {
-
-            output_files.push(output_file);
-
-        } else {
-
-            eprintln!(
-                "Erreur lors de la compilation du fichier {:?}: {}", 
-                c_file, 
-                format!(
-                    "La compilation a échoué. Erreur : {}\nCommande exécutée : {:?}\nSortie de la commande : {}",
-                    String::from_utf8_lossy(&output.stderr),
-                    async_command,
-                    String::from_utf8_lossy(&output.stdout),
-                )
-            );
+        let compile_result = compile_single_source_to_output(&c_file_str, &output_file_str);
+        match compile_result {
+            Ok(_) => output_files.push(output_file),
+            Err(err) => eprintln!("Erreur lors de la compilation du fichier {:?}: {}", c_file, err),
         }
     }
 
     Ok(output_files)
+}
 
+fn compile_single_source_to_output(source_file: &str, output_file: &str) -> Result<(), String> {
+    let output = Command::new("gcc")
+        .args(&[source_file, "-c", "-o", output_file])
+        .output()
+        .map_err(|err| format!("Erreur lors de la compilation : {}", err))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "La compilation a échoué. Erreur : {}\nSortie de la commande : {}",
+            String::from_utf8_lossy(&output.stderr),
+            String::from_utf8_lossy(&output.stdout),
+        ))
+    }
 }
 
 async fn compile_output_to_executable(o_files: Vec<PathBuf>, include_paths: Vec<String>, library_paths: Vec<String>, libraries: Vec<String>) -> Result<Vec<u8>, std::io::Error> {
